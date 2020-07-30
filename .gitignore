@@ -1,0 +1,7 @@
+.idea/
+target/
+*.iml
+*.log
+.metals/
+.bloop/
+project/metals.sbt
