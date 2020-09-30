@@ -104,6 +104,16 @@ object App extends IOApp {
       sourceAddress = KeyUtils.publicKeyToAddressString(clKeyPair.value.getPublic)
       transferId = cliParams.transferId
       cmTransaction <- coMakeryClient.generateTransaction(sourceAddress, transferId)(config.comakery)(cmKeyPair, client)
+      _ <- {
+        for {
+          _ <- Logger[F].info("You are about to send:")
+          _ <- Logger[F].info(s"${cmTransaction.amount}DAG to ${cmTransaction.destination}")
+          _ <- Logger[F].info("Do you confirm? Only 'yes' will confirm the transaction.")
+          input = StdIn.readLine()
+          _ <- Logger[F].info(s"Answer: $input")
+          _ <- if (input != "yes") Logger[F].info("Operation NOT confirmed. Cancelling.") >> F.delay(throw new Throwable("Transaction cancelled!")) else ().pure[F]
+        } yield ()
+      }.attemptT
       walletCliConfig = WalletCliConfig(
         destination = cmTransaction.destination,
         prevTxPath = cliParams.prevTxPath,
