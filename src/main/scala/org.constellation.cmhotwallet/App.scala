@@ -96,9 +96,7 @@ object App extends IOApp {
       cmKeyPair <- loader.getCMKeyPair(cliParams)
       clKeyPair <- loader.getCLKeyPair(cliParams)
       sourceAddress = KeyUtils.publicKeyToAddressString(clKeyPair.value.getPublic)
-      transferId <- EitherT.fromEither[F] {
-        cliParams.transferId.toRight(new RuntimeException("transferId is not set to a proper value"))
-      }
+      transferId = cliParams.transferId
       cmTransaction <- coMakeryClient.generateTransaction(sourceAddress, transferId)(config.comakery)(cmKeyPair, client)
       walletCliConfig = WalletCliConfig(
         destination = cmTransaction.destination,

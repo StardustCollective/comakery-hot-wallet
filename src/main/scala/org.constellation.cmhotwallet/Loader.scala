@@ -88,7 +88,7 @@ class Loader(keyTool: Ed25519KeyTool) {
                 opt[String]("clKeypass").required
                   .action((x, c) => c.copy(clKeypass = x.toCharArray))
               ),
-            opt[Long]("transferId").required
+            opt[Long]("transferId").optional
               .valueName("<long>")
               .validate(x => if (x > 0L) success else failure("transferId must be > 0"))
               .action((x, c) => c.copy(transferId = x.some)),

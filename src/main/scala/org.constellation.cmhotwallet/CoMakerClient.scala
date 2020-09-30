@@ -33,7 +33,7 @@ class CoMakerClient(keyTool: Ed25519KeyTool) {
   private def timestamp: String = Instant.now.getEpochSecond.toString
 
   private def getUri(path: String)(config: CoMakeryConfig): Uri =
-    Uri(scheme = Some(Scheme.http), authority = Some(Authority(host = RegName(config.host), port = config.port.some)))
+    Uri(scheme = Some(Scheme.https), authority = Some(Authority(host = RegName(config.host), port = config.port)))
       .addPath(config.apiSuffix)
       .addPath(path)
 
@@ -67,13 +67,13 @@ class CoMakerClient(keyTool: Ed25519KeyTool) {
     )(client)
   }
 
-  def generateTransaction[F[_]: Sync: ConcurrentEffect](source: String, transferId: Long)(
+  def generateTransaction[F[_]: Sync: ConcurrentEffect](source: String, transferId: Option[Long])(
     config: CoMakeryConfig
   )(keyPair: CMKeyPair, client: Resource[F, Client[F]]): EitherT[F, Throwable, CMTransaction] = {
     val uri = getUri(s"projects/${config.projectId}/blockchain_transactions")(config)
     val method = POST
     val body = Body(
-      data = TransactionData(GenerateTransaction(source, nonce), transferId.some, None).some,
+      data = TransactionData(GenerateTransaction(source, nonce), transferId, None).some,
       url = uri.renderString,
       method = method.toString(),
       nonce = nonce,
