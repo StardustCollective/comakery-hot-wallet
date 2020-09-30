@@ -16,7 +16,7 @@ import org.constellation.cmhotwallet.model.request._
 import org.http4s.Method.{GET, POST, PUT}
 import org.http4s.Uri.{Authority, RegName, Scheme}
 import org.http4s.client.Client
-import org.http4s.{Header, Headers, Request, Uri}
+import org.http4s.{Header, Headers, MalformedMessageBodyFailure, Request, Uri}
 import org.http4s.util.CaseInsensitiveString
 
 class CoMakerClient(keyTool: Ed25519KeyTool) {
@@ -87,7 +87,9 @@ class CoMakerClient(keyTool: Ed25519KeyTool) {
       )
       .withEntity(signedBody)
 
-    RequestRunner.run[F, CMTransaction](req)(client)
+    RequestRunner
+      .run[F, CMTransaction](req)(client)
+      .leftMap{ case _: MalformedMessageBodyFailure => new Throwable("There are no transfers ready for payment process currently.") }
   }
 
   def submitTransactionHash[F[_]: Sync: ConcurrentEffect](transactionId: Long, txHash: String)(
