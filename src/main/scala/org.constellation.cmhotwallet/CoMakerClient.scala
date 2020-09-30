@@ -82,7 +82,9 @@ class CoMakerClient(keyTool: Ed25519KeyTool) {
     val signedBody = signBody(body)(keyPair)
 
     val req = Request[F](method = method, uri = uri)
-      .withHeaders(Header(`API-Key`, config.constellationApiKey))
+      .withHeaders(
+        Header(`Api-Transaction-Key`, config.constellationApiKey)
+      )
       .withEntity(signedBody)
 
     RequestRunner.run[F, CMTransaction](req)(client)
@@ -103,7 +105,9 @@ class CoMakerClient(keyTool: Ed25519KeyTool) {
     val signedBody = signBody(body)(keyPair)
 
     val req = Request[F](method = method, uri = uri)
-      .withHeaders(Header(`API-Key`, config.constellationApiKey))
+      .withHeaders(
+        Header(`Api-Transaction-Key`, config.constellationApiKey)
+      )
       .withEntity(signedBody)
 
     RequestRunner.run[F, CMTransaction](req)(client)
@@ -127,6 +131,7 @@ class CoMakerClient(keyTool: Ed25519KeyTool) {
 object CoMakerClient {
   val PROOF_TYPE = "Ed25519Signature2018"
   val `API-Key` = "API-Key"
+  val `Api-Transaction-Key` = "Api-Transaction-Key"
   val Total = CaseInsensitiveString("Total")
   val `Per-Page` = CaseInsensitiveString("Per-Page")
   val Page = "page"
