@@ -8,6 +8,7 @@ assemblyMergeStrategy in assembly := {
   case PathList("org", "slf4j", xs @ _*) => MergeStrategy.first
   case PathList("cats", "effect", xs @ _*) => MergeStrategy.first
   case PathList("META-INF", xs @ _*) => MergeStrategy.discard
+  case "logback.xml" => MergeStrategy.first // picks the logback from this project
   case x if x.contains("org/constellation/keytool/BuildInfo$.class") => MergeStrategy.first
   case x =>
     val oldStrategy = (assemblyMergeStrategy in assembly).value
