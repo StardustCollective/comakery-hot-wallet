@@ -19,6 +19,14 @@
         <appender-ref ref="FILE" />
     </logger>
 
+    <logger name="org.constellation.wallet" level="warn">
+        <appender-ref ref="FILE" />
+    </logger>
+
+    <logger name="org.constellation.keytool" level="warn">
+        <appender-ref ref="FILE" />
+    </logger>
+
     <logger name="org.http4s" level="warn">
         <appender-ref ref="FILE" />
     </logger>
