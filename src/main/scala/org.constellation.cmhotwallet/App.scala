@@ -7,10 +7,8 @@ import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import org.http4s.client.Client
 import org.http4s.client.blaze.BlazeClientBuilder
-import org.constellation.cmhotwallet.CoMakerClient._
 import org.constellation.cmhotwallet.model.CliMethod
-import org.constellation.cmhotwallet.Ed25519KeyTool.publicKeyToBase64
-import org.constellation.cmhotwallet.model.config.{CliConfig, CoMakeryConfig, Config}
+import org.constellation.cmhotwallet.model.config.{CliConfig, Config, ProjectConfig}
 import org.constellation.keytool.KeyUtils
 import org.constellation.wallet.Wallet.{createTransaction, storeTransaction}
 import org.constellation.wallet.{CliConfig => WalletCliConfig}
@@ -22,30 +20,31 @@ import scala.io.StdIn
 
 object App extends IOApp {
 
-  val keyTool = Ed25519KeyTool()
-  val loader = Loader(keyTool)
-  lazy val coMakeryClient = CoMakerClient(keyTool)
+  val loader = Loader()
+  lazy val coMakeryClient = CoMakerClient()
   lazy val constellationClient = ConstellationClient()
+  implicit val logger = Slf4jLogger.getLogger[IO]
 
   def run(args: List[String]): IO[ExitCode] = {
     for {
       config <- loader.loadConfig[IO]()
+      projectConfig <- loader.loadProjectConfig[IO]()
       cliParams <- loader.loadCliParams[IO](args)
       client = setupClient[IO]
-      _ <- runMethod[IO](config, cliParams)(client)
+      _ <- runMethod[IO](config, projectConfig, cliParams)(client)
     } yield ()
-  }.fold[ExitCode](throw _, _ => ExitCode.Success)
+  }
+    .foldF[ExitCode](
+      e => logger.error(s"${RED}Failure:\n${RESET}" + e.toString).map(_ => throw e),
+      _ => logger.info("Success! Shutting down.").map(_ => ExitCode.Success)
+    )
 
-  def runMethod[F[_]: Sync: ConcurrentEffect](config: Config, cliParams: CliConfig)(
+  def runMethod[F[_]: Sync: ConcurrentEffect: Logger](config: Config, projectConfig: ProjectConfig, cliParams: CliConfig)(
     client: Resource[F, Client[F]]
   ): EitherT[F, Throwable, Unit] = {
-    implicit val logger = Slf4jLogger.getLogger[F]
 
     cliParams.method match {
-      case CliMethod.GenerateKeyPair => generateKeyPair(cliParams)
-      case CliMethod.ShowPublicKey   => showPublicKey(cliParams)
-      case CliMethod.ShowTransfers   => showTransfers(config.comakery, cliParams)(client)
-      case CliMethod.PayTransfer     => payTransfer(config, cliParams)(client)
+      case CliMethod.PayTransfer     => payTransfer(config, projectConfig, cliParams)(client)
       case _                         => EitherT.leftT[F, Unit](new RuntimeException("Unknown command"))
     }
   }
@@ -57,61 +56,27 @@ object App extends IOApp {
       .withMaxWaitQueueLimit(4)
       .resource
 
-  def generateKeyPair[F[_]: Sync: Logger](cliParams: CliConfig): EitherT[F, Throwable, Unit] = {
-    val updatedParams =
-      if (cliParams.loadFromEnvArgs)
-        loader.loadCMEnvPasswords()
-          .map(ep => cliParams.copy(cmStorepass = ep.storepass, cmKeypass = ep.keypass))
-      else
-        cliParams.pure[F].attemptT
-
-    for {
-      params <- updatedParams
-      _ <- keyTool.generateAndStoreKeyPair(params.cmKeystore, params.cmAlias, params.cmStorepass, params.cmKeypass)
-      _ <- Logger[F].info(s"${GREEN}KeyPair created successfully!${RESET}").attemptT
-    } yield ()
-  }
-
-  def showPublicKey[F[_]: Logger](cliParams: CliConfig)(implicit F: Sync[F]): EitherT[F, Throwable, Unit] =
-    for {
-      keyPair <- loader.getCMKeyPair(cliParams)
-      publicKey = publicKeyToBase64(keyPair.value.getPublic)
-      _ <- Logger[F].info(s"${GREEN}${publicKey}${RESET}").pure[F].attemptT
-    } yield ()
-
-  def showTransfers[F[_]: Logger](config: CoMakeryConfig, cliParams: CliConfig)(
+  def payTransfer[F[_]: Logger](config: Config, projectConfig: ProjectConfig, cliParams: CliConfig)(
     client: Resource[F, Client[F]]
   )(implicit F: Sync[F], C: ConcurrentEffect[F]) =
     for {
-      keyPair <- loader.getCMKeyPair(cliParams)
-      response <- coMakeryClient.getTransfers(config, cliParams)(keyPair, client)
-      (headers, transfers) = response
-      table = TableFormatter.fromTransfers(transfers.sortBy(_.id))
-      _ <- Logger[F].info(
-        s"Page: ${cliParams.pageNr}, ${headers.get(Total).getOrElse("unknown")}, ${headers.get(`Per-Page`).getOrElse("unknown")}"
-      ).attemptT
-      _ <- Logger[F].info(
-        table.lines.fold("\n")((acc, b) => acc + "\n" + b)
-      ).attemptT
-    } yield ()
-
-  def payTransfer[F[_]: Logger](config: Config, cliParams: CliConfig)(
-    client: Resource[F, Client[F]]
-  )(implicit F: Sync[F], C: ConcurrentEffect[F]) =
-    for {
-      cmKeyPair <- loader.getCMKeyPair(cliParams)
-      clKeyPair <- loader.getCLKeyPair(cliParams)
-      sourceAddress = KeyUtils.publicKeyToAddressString(clKeyPair.value.getPublic)
+      keyPair <- loader.getKeyPair(cliParams)
+      sourceAddress = KeyUtils.publicKeyToAddressString(keyPair.getPublic)
       transferId = cliParams.transferId
-      cmTransaction <- coMakeryClient.generateTransaction(sourceAddress, transferId)(config.comakery)(cmKeyPair, client)
+      cmTransaction <- coMakeryClient.generateTransaction(sourceAddress, transferId)(config.comakery, projectConfig)(client)
       _ <- {
         for {
           _ <- Logger[F].info("You are about to send:")
-          _ <- Logger[F].info(s"${cmTransaction.amount}DAG to ${cmTransaction.destination}")
+          _ <- Logger[F].info(s"${CYAN}${cmTransaction.amount}${RESET} DAG to ${YELLOW}${cmTransaction.destination}${RESET}")
           _ <- Logger[F].info("Do you confirm? Only 'yes' will confirm the transaction.")
           input = StdIn.readLine()
           _ <- Logger[F].info(s"Answer: $input")
-          _ <- if (input != "yes") Logger[F].info("Operation NOT confirmed. Cancelling.") >> F.delay(throw new Throwable("Transaction cancelled!")) else ().pure[F]
+          _ <-
+            if (input != "yes")
+              Logger[F].info(s"Operation ${RED}NOT${RESET} confirmed. ${RED}Cancelling${RESET}.") >>
+                F.delay(throw new Throwable("Transaction cancelled!"))
+            else
+              ().pure[F]
         } yield ()
       }.attemptT
       walletCliConfig = WalletCliConfig(
@@ -121,11 +86,11 @@ object App extends IOApp {
         amount = cmTransaction.amount,
         normalized = true
       )
-      clTransaction <- createTransaction(walletCliConfig, clKeyPair.value)
+      clTransaction <- createTransaction(walletCliConfig, keyPair)
       _ <- storeTransaction(walletCliConfig, clTransaction)
       clTxHash <- constellationClient.submitTransaction(clTransaction)(config.constellation.loadBalancer, client)
-      _ <- coMakeryClient.submitTransactionHash(cmTransaction.id, clTxHash)(config.comakery)(cmKeyPair, client)
-      _ <- Logger[F].info(s"${GREEN}Transaction submitted successfully!\n${RESET}hash: ${CYAN}$clTxHash${RESET}")
+      _ <- coMakeryClient.submitTransactionHash(cmTransaction.id, clTxHash)(config.comakery, projectConfig)(client)
+      _ <- Logger[F].info(s"${GREEN}Transaction submitted successfully!\n${RESET}hash: ${YELLOW}$clTxHash${RESET}")
         .attemptT
     } yield ()
 }

@@ -1,22 +1,27 @@
 package org.constellation.cmhotwallet
 
+import java.security.KeyPair
+
 import pureconfig._
 import pureconfig.generic.auto._
 import cats.data.EitherT
 import cats.effect.Sync
 import cats.implicits._
 import org.constellation.cmhotwallet.model._
-import org.constellation.cmhotwallet.model.config.{CliConfig, Config}
+import org.constellation.cmhotwallet.model.config.{CliConfig, Config, ProjectConfig}
 import org.constellation.keytool.KeyStoreUtils
 import pureconfig.ConfigSource
 import scopt.OParser
 
-class Loader(keyTool: Ed25519KeyTool) {
+import scala.util.Try
 
-  val CM_STOREPASS = "CM_STOREPASS"
-  val CM_KEYPASS = "CM_KEYPASS"
+class Loader() {
+
   val CL_STOREPASS = "CL_STOREPASS"
   val CL_KEYPASS = "CL_KEYPASS"
+
+  val COMAKERY_PROJECT_API_TRANSACTION_KEY = "COMAKERY_PROJECT_API_TRANSACTION_KEY"
+  val COMAKERY_PROJECT_ID = "COMAKERY_PROJECT_ID"
 
   def loadConfig[F[_]: Sync](): EitherT[F, Throwable, Config] =
     EitherT.fromEither(
@@ -32,61 +37,30 @@ class Loader(keyTool: Ed25519KeyTool) {
       import builder._
       OParser.sequence(
         programName("cl-comakery-hot-wallet"),
-        opt[String]("cmKeystore").required
-          .action((x, c) => c.copy(cmKeystore = x)),
-        opt[String]("cmAlias").required
-          .action((x, c) => c.copy(cmAlias = x)),
-        if (args.contains("-e") || args.contains("--env_args"))
-          OParser.sequence(
-            opt[String]("cmStorepass").optional
-              .action((x, c) => c.copy(cmStorepass = x.toCharArray)),
-            opt[String]("cmKeypass").optional
-              .action((x, c) => c.copy(cmKeypass = x.toCharArray))
-          )
-        else
-          OParser.sequence(
-            opt[String]("cmStorepass").required
-              .action((x, c) => c.copy(cmStorepass = x.toCharArray)),
-            opt[String]("cmKeypass").required
-              .action((x, c) => c.copy(cmKeypass = x.toCharArray))
-          ),
         opt[Unit]("env_args").optional
           .abbr("e")
           .action((_, c) => c.copy(loadFromEnvArgs = true)),
-        cmd("generate-keypair")
-          .action((_, c) => c.copy(method = CliMethod.GenerateKeyPair))
-          .text("generate-keypair"),
-        cmd("show-publickey")
-          .action((_, c) => c.copy(method = CliMethod.ShowPublicKey))
-          .text("show-publickey"),
-        cmd("show-transfers")
-          .action((_, c) => c.copy(method = CliMethod.ShowTransfers))
-          .text("show-transfers")
-          .children(
-            opt[Int]("pageNr").optional
-              .action((x, c) => c.copy(pageNr = x))
-          ),
         cmd("pay-transfer")
           .action((_, c) => c.copy(method = CliMethod.PayTransfer))
           .text("pay-transfer")
           .children(
-            opt[String]("clKeystore").required
-              .action((x, c) => c.copy(clKeystore = x)),
-            opt[String]("clAlias").required
-              .action((x, c) => c.copy(clAlias = x)),
+            opt[String]("keystore").required
+              .action((x, c) => c.copy(keystore = x)),
+            opt[String]("alias").required
+              .action((x, c) => c.copy(alias = x)),
             if (args.contains("-e") || args.contains("--env_args"))
               OParser.sequence(
-                opt[String]("clStorepass").optional
-                  .action((x, c) => c.copy(clStorepass = x.toCharArray)),
-                opt[String]("clKeypass").optional
-                  .action((x, c) => c.copy(clKeypass = x.toCharArray))
+                opt[String]("storepass").optional
+                  .action((x, c) => c.copy(storepass = x.toCharArray)),
+                opt[String]("keypass").optional
+                  .action((x, c) => c.copy(keypass = x.toCharArray))
               )
             else
               OParser.sequence(
-                opt[String]("clStorepass").required
-                  .action((x, c) => c.copy(clStorepass = x.toCharArray)),
-                opt[String]("clKeypass").required
-                  .action((x, c) => c.copy(clKeypass = x.toCharArray))
+                opt[String]("storepass").required
+                  .action((x, c) => c.copy(storepass = x.toCharArray)),
+                opt[String]("keypass").required
+                  .action((x, c) => c.copy(keypass = x.toCharArray))
               ),
             opt[Long]("transferId").optional
               .valueName("<long>")
@@ -111,19 +85,7 @@ class Loader(keyTool: Ed25519KeyTool) {
     }
   }
 
-  def loadCMEnvPasswords[F[_]: Sync](): EitherT[F, Throwable, CMEnvPasswords] =
-    EitherT.fromEither {
-      for {
-        storepass <- sys.env
-          .get(CM_STOREPASS)
-          .toRight(new RuntimeException(s"$CM_STOREPASS environment variable is missing"))
-        keypass <- sys.env
-          .get(CM_KEYPASS)
-          .toRight(new RuntimeException(s"$CM_KEYPASS environment variable is missing"))
-      } yield CMEnvPasswords(storepass.toCharArray, keypass.toCharArray)
-    }
-
-  def loadCLEnvPasswords[F[_]: Sync](): EitherT[F, Throwable, CLEnvPasswords] =
+  def loadEnvPasswords[F[_]: Sync](): EitherT[F, Throwable, EnvPasswords] =
     EitherT.fromEither {
       for {
         storepass <- sys.env
@@ -132,43 +94,36 @@ class Loader(keyTool: Ed25519KeyTool) {
         keypass <- sys.env
           .get(CL_KEYPASS)
           .toRight(new RuntimeException(s"$CL_KEYPASS environment variable is missing"))
-      } yield CLEnvPasswords(storepass.toCharArray, keypass.toCharArray)
+      } yield EnvPasswords(storepass.toCharArray, keypass.toCharArray)
     }
 
-  def getCMKeyPair[F[_]: Sync](cliParams: CliConfig): EitherT[F, Throwable, CMKeyPair] =
+  def getKeyPair[F[_]: Sync](cliParams: CliConfig): EitherT[F, Throwable, KeyPair] =
     if (cliParams.loadFromEnvArgs)
       for {
-        passwords <- loadCMEnvPasswords[F]()
-        keyPair <-
-          keyTool.openKeyStoreAndGetKeyPair(
-            cliParams.cmKeystore,
-            cliParams.cmAlias,
-            passwords.storepass,
-            passwords.keypass
-          )
-      } yield CMKeyPair(keyPair)
-    else
-      keyTool.openKeyStoreAndGetKeyPair(
-          cliParams.cmKeystore,
-          cliParams.cmAlias,
-          cliParams.cmStorepass,
-          cliParams.cmKeypass
-        )
-        .map(CMKeyPair)
-
-  def getCLKeyPair[F[_]: Sync](cliParams: CliConfig): EitherT[F, Throwable, CLKeyPair] =
-    if (cliParams.loadFromEnvArgs)
-      for {
-        passwords <- loadCLEnvPasswords[F]()
+        passwords <- loadEnvPasswords[F]()
         keyPair <- KeyStoreUtils
-          .keyPairFromStorePath(cliParams.clKeystore, cliParams.clAlias, passwords.storepass, passwords.keypass)
-      } yield CLKeyPair(keyPair)
+          .keyPairFromStorePath(cliParams.keystore, cliParams.alias, passwords.storepass, passwords.keypass)
+      } yield keyPair
     else
       KeyStoreUtils
-        .keyPairFromStorePath(cliParams.clKeystore, cliParams.clAlias, cliParams.clStorepass, cliParams.clKeypass)
-        .map(CLKeyPair)
+        .keyPairFromStorePath(cliParams.keystore, cliParams.alias, cliParams.storepass, cliParams.keypass)
+
+
+  def loadProjectConfig[F[_]: Sync](): EitherT[F, Throwable, ProjectConfig] =
+    EitherT.fromEither {
+      for {
+        idStr <- sys.env
+          .get(COMAKERY_PROJECT_ID)
+          .toRight(new RuntimeException(s"$COMAKERY_PROJECT_ID environment variable is missing."))
+        id <- Try(idStr.toLong).toOption
+          .toRight(new RuntimeException(s"$COMAKERY_PROJECT_ID environment variable needs to be a Number."))
+        apiTransactionKey <- sys.env
+          .get(COMAKERY_PROJECT_API_TRANSACTION_KEY)
+          .toRight(new RuntimeException(s"$COMAKERY_PROJECT_API_TRANSACTION_KEY environment variable is missing."))
+      } yield ProjectConfig(id = id, apiTransactionKey = apiTransactionKey)
+    }
 }
 
 object Loader {
-  def apply(keyTool: Ed25519KeyTool) = new Loader(keyTool)
+  def apply() = new Loader()
 }
