@@ -7,7 +7,7 @@ import cats.data.EitherT
 import org.http4s.circe.CirceEntityEncoder._
 import org.http4s.circe.CirceEntityDecoder._
 import io.circe.syntax._
-import cats.effect.{ConcurrentEffect, Resource, Sync}
+import cats.effect.{Resource, Sync}
 import cats.implicits._
 import org.constellation.cmhotwallet.model.{Transaction => CMTransaction}
 import org.constellation.cmhotwallet.model.config.{CoMakeryConfig, ProjectConfig}
@@ -36,7 +36,7 @@ class CoMakerClient() {
       .addPath(config.apiSuffix)
       .addPath(path)
 
-  def generateTransaction[F[_] : Sync : ConcurrentEffect](source: String, transferId: Option[Long])(
+  def generateTransaction[F[_]: Sync](source: String, transferId: Option[Long])(
     config: CoMakeryConfig,
     projectConfig: ProjectConfig
   )(client: Resource[F, Client[F]]): EitherT[F, Throwable, CMTransaction] = {
@@ -65,7 +65,7 @@ class CoMakerClient() {
       }
   }
 
-  def submitTransactionHash[F[_] : Sync : ConcurrentEffect](transactionId: Long, txHash: String)(
+  def submitTransactionHash[F[_]: Sync](transactionId: Long, txHash: String)(
     config: CoMakeryConfig,
     projectConfig: ProjectConfig
   )(client: Resource[F, Client[F]]): EitherT[F, Throwable, CMTransaction] = {
