@@ -89,8 +89,8 @@ object App extends IOApp {
       clTransaction <- createTransaction(walletCliConfig, keyPair)
       _ <- storeTransaction(walletCliConfig, clTransaction)
       clTxHash <- constellationClient.submitTransaction(clTransaction)(config.constellation.loadBalancer, client)
-      _ <- coMakeryClient.submitTransactionHash(cmTransaction.id, clTxHash)(config.comakery, projectConfig)(client)
-      _ <- Logger[F].info(s"${GREEN}Transaction submitted successfully!\n${RESET}hash: ${YELLOW}$clTxHash${RESET}")
+      _ <- coMakeryClient.submitTransactionHash(cmTransaction.id, clTxHash.value)(config.comakery, projectConfig)(client)
+      _ <- Logger[F].info(s"${GREEN}Transaction submitted successfully!\n${RESET}hash: ${YELLOW}${clTxHash.value}${RESET}")
         .attemptT
     } yield ()
 }
