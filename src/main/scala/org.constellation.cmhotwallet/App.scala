@@ -39,7 +39,7 @@ object App extends IOApp {
       _ => logger.info("Success! Shutting down.").map(_ => ExitCode.Success)
     )
 
-  def runMethod[F[_]: Sync: ConcurrentEffect: Logger](config: Config, projectConfig: ProjectConfig, cliParams: CliConfig)(
+  def runMethod[F[_]: ConcurrentEffect: Logger](config: Config, projectConfig: ProjectConfig, cliParams: CliConfig)(
     client: Resource[F, Client[F]]
   ): EitherT[F, Throwable, Unit] = {
 
@@ -49,7 +49,7 @@ object App extends IOApp {
     }
   }
 
-  private def setupClient[F[_]: Sync: ConcurrentEffect]: Resource[F, Client[F]] =
+  private def setupClient[F[_]: ConcurrentEffect]: Resource[F, Client[F]] =
     BlazeClientBuilder(global)
       .withConnectTimeout(30.seconds)
       .withMaxTotalConnections(8)
@@ -58,7 +58,7 @@ object App extends IOApp {
 
   def payTransfer[F[_]: Logger](config: Config, projectConfig: ProjectConfig, cliParams: CliConfig)(
     client: Resource[F, Client[F]]
-  )(implicit F: Sync[F], C: ConcurrentEffect[F]) =
+  )(implicit F: Sync[F]) =
     for {
       keyPair <- loader.getKeyPair(cliParams)
       sourceAddress = KeyUtils.publicKeyToAddressString(keyPair.getPublic)

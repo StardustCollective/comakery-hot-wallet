@@ -3,7 +3,7 @@ package org.constellation.cmhotwallet
 import cats.data.EitherT
 import org.http4s.circe.CirceEntityEncoder._
 import org.http4s.circe.CirceEntityDecoder._
-import cats.effect.{ConcurrentEffect, Resource, Sync}
+import cats.effect.{Resource, Sync}
 import cats.implicits._
 import org.constellation.cmhotwallet.model.CLTransactionHash
 import org.constellation.cmhotwallet.model.config.LoadBalancerConfig
@@ -21,7 +21,7 @@ class ConstellationClient() {
       authority = Some(Authority(host = RegName(config.host), port = config.port.some))
     ).addPath(path)
 
-  def submitTransaction[F[_]: Sync: ConcurrentEffect](
+  def submitTransaction[F[_]: Sync](
     tx: CLTransaction
   )(config: LoadBalancerConfig, client: Resource[F, Client[F]]): EitherT[F, Throwable, CLTransactionHash] = {
     val uri = getUri("transaction")(config)
