@@ -36,7 +36,7 @@ object App extends IOApp {
   }
     .foldF[ExitCode](
       e => logger.error(s"${RED}Failure:\n${RESET}" + e.toString).map(_ => throw e),
-      _ => logger.info("Success! Shutting down.").map(_ => ExitCode.Success)
+      _ => logger.info(s"${GREEN}Success!${RESET} Shutting down.").map(_ => ExitCode.Success)
     )
 
   def runMethod[F[_]: ConcurrentEffect: Logger](config: Config, projectConfig: ProjectConfig, cliParams: CliConfig)(
@@ -64,6 +64,7 @@ object App extends IOApp {
       sourceAddress = KeyUtils.publicKeyToAddressString(keyPair.getPublic)
       transferId = cliParams.transferId
       cmTransaction <- coMakeryClient.generateTransaction(sourceAddress, transferId)(config.comakery, projectConfig)(client)
+      _ <- Logger[F].info(s"Processing payment for transfer with id=${YELLOW}${cmTransaction.blockchainTransactableId}${RESET}").attemptT
       _ <- {
         for {
           _ <- Logger[F].info("You are about to send:")
@@ -89,8 +90,9 @@ object App extends IOApp {
       clTransaction <- createTransaction(walletCliConfig, keyPair)
       _ <- storeTransaction(walletCliConfig, clTransaction)
       clTxHash <- constellationClient.submitTransaction(clTransaction)(config.constellation.loadBalancer, client)
+      _ <- Logger[F].info(s"step 1/2) ${GREEN}Transaction submitted to Constellation Network.\n${RESET}hash: ${YELLOW}${clTxHash.value}${RESET}").attemptT
       _ <- coMakeryClient.submitTransactionHash(cmTransaction.id, clTxHash.value)(config.comakery, projectConfig)(client)
-      _ <- Logger[F].info(s"${GREEN}Transaction submitted successfully!\n${RESET}hash: ${YELLOW}${clTxHash.value}${RESET}")
-        .attemptT
+      _ <- Logger[F].info(s"step 2/2) ${GREEN}Transaction hash submitted to CoMakery.${RESET}").attemptT
+      _ <- Logger[F].info(s"${GREEN}Transaction processed successfully!${RESET}").attemptT
     } yield ()
 }
